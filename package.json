@@ -1,0 +1,18 @@
+{
+  "name": "@nodetf/nbt",
+  "version": "1.0.0",
+  "description": "NBT Impl from Minecraft",
+  "main": "index.ts",
+  "scripts": {
+    "test": "ts-node test.ts"
+  },
+  "author": "N1ghtTheF0x",
+  "license": "MIT",
+  "devDependencies": {
+    "ts-node": "latest",
+    "typescript": "latest"
+  },
+  "dependencies": {
+    "@nodetf/buffer": "github:N1ghtTheF0x/nodetf-buffer"
+  }
+}
