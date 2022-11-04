@@ -4,10 +4,13 @@
         "moduleResolution": "Node",
         "target": "ESNext",
         "jsx": "preserve",
-        "strict": true
+        "strict": true,
+        "outDir": "lib",
+        "sourceMap": true
     },
     "exclude": [
         "node_modules",
-        "**/node_modules/*"
+        "**/node_modules/*",
+        "test*"
     ]
 }

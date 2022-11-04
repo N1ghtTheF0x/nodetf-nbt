@@ -4,7 +4,10 @@
   "description": "NBT Impl from Minecraft",
   "main": "index.ts",
   "scripts": {
-    "test": "ts-node test.ts"
+    "test": "ts-node test.ts",
+    "prebuild": "npm run clean",
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
   },
   "author": "N1ghtTheF0x",
   "license": "MIT",

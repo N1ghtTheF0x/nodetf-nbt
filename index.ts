@@ -1,4 +1,5 @@
 import NBuffer from "@nodetf/buffer";
+import { deflateSync, gunzipSync } from "node:zlib"
 
 abstract class NBTTag
 {
@@ -25,8 +26,20 @@ abstract class NBTTag
         buffer.writeInt16(this.key.length)
         buffer.writeString(this.key)
     }
-    abstract read(buffer: NBuffer): void
-    abstract write(buffer: NBuffer): void
+    read(buffer: NBuffer,includeKey: boolean = true)
+    {
+        this.checkType(buffer)
+        if(includeKey) this.readKey(buffer)
+        this.readContent(buffer)
+    }
+    write(buffer: NBuffer,includeKey: boolean = true)
+    {
+        buffer.writeInt8(this.type)
+        if(includeKey) this.writeKey(buffer)
+        this.writeContent(buffer)
+    }
+    abstract readContent(buffer: NBuffer): void
+    abstract writeContent(buffer: NBuffer): void
     abstract toJSON(): object
 }
 
@@ -48,17 +61,36 @@ namespace NBTTag
         IntArray,
         LongArray
     }
+    export enum Compression
+    {
+        None = Type.Compound,
+        GZip = 0x1F,
+        ZLib = 0x78
+    }
+    export function detectCompression(buffer: Buffer)
+    {
+        const firstByte = buffer.readInt8(0)
+        switch(firstByte)
+        {
+            case Compression.None:
+                return Compression.None
+            case Compression.GZip:
+                return Compression.GZip
+            case Compression.ZLib:
+                return Compression.ZLib
+            default:
+                throw new Error("Couldn't detect compression!")
+        }
+    }
     export class End extends NBTTag
     {
         constructor()
         {
             super(Type.End)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
+        readContent(buffer: NBuffer): void {
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
+        writeContent(buffer: NBuffer): void {
         }
         toJSON(): object {
             return {}
@@ -72,19 +104,16 @@ namespace NBTTag
             super(Type.Byte)
             this.byte = byte
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeInt8(this.byte)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             this.byte = buffer.readInt8()
         }
         toJSON(): object {
             return {
-                byte: this.byte
+                byte: this.byte,
+                key: this.key
             }
         }
     }
@@ -96,19 +125,16 @@ namespace NBTTag
             super(Type.Short)
             this.short = short
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeInt16(this.short)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             this.short = buffer.readInt16()
         }
         toJSON(): object {
             return {
-                short: this.short
+                short: this.short,
+                key: this.key
             }
         }
     }
@@ -120,19 +146,16 @@ namespace NBTTag
             super(Type.Int)
             this.int = int
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeInt32(this.int)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             this.int = buffer.readInt32()
         }
         toJSON(): object {
             return {
-                int: this.int
+                int: this.int,
+                key: this.key
             }
         }
     }
@@ -144,19 +167,16 @@ namespace NBTTag
             super(Type.Long)
             this.long = long
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeInt64(this.long)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             this.long = buffer.readInt64()
         }
         toJSON(): object {
             return {
-                long: this.long
+                long: this.long,
+                key: this.key
             }
         }
     }
@@ -168,19 +188,16 @@ namespace NBTTag
             super(Type.Float)
             this.float = float
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeFloat(this.float)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             this.float = buffer.readFloat()
         }
         toJSON(): object {
             return {
-                float: this.float
+                float: this.float,
+                key: this.key
             }
         }
     }
@@ -192,19 +209,16 @@ namespace NBTTag
             super(Type.Double)
             this.double = double
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeDouble(this.double)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             this.double = buffer.readDouble()
         }
         toJSON(): object {
             return {
-                double: this.double
+                double: this.double,
+                key: this.key
             }
         }
     }
@@ -216,21 +230,18 @@ namespace NBTTag
             super(Type.ByteArray)
             this.byteArray = arr
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeInt32(this.byteArray.length)
             buffer.writeArray(this.byteArray,NBuffer.SizeOf.Int8)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             const length = buffer.readInt32()
             this.byteArray = buffer.readArray(length,NBuffer.SizeOf.Int8)
         }
         toJSON(): object {
             return {
-                byteArray: this.byteArray
+                byteArray: this.byteArray,
+                key: this.key
             }
         }
     }
@@ -242,27 +253,24 @@ namespace NBTTag
             super(Type.String)
             this.string = string
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeInt16(this.string.length)
             buffer.writeString(this.string,"utf-8")
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             const length = buffer.readInt16()
             this.string = buffer.readString(length,"utf-8")
         }
         toJSON(): object {
             return {
-                string: this.string
+                string: this.string,
+                key: this.key
             }
         }
     }
     export class List extends NBTTag
     {
-        readonly listType: Type
+        listType: Type
         list: Array<NBTTag>
         constructor(type: Type,...arr: Array<NBTTag>)
         {
@@ -270,22 +278,18 @@ namespace NBTTag
             this.listType = type
             this.list = arr
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeInt32(this.list.length)
-            for(const tag of this.list) tag.write(buffer)
+            for(const tag of this.list) tag.write(buffer,false)
             buffer.writeInt8(Type.End)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
+        readContent(buffer: NBuffer): void {
             this.list = []
-            this.readKey(buffer)
             const length = buffer.readInt32()
             for(var index = 0;index < length;index++)
             {
                 const tag = NBTTag.create(this.listType)
-                tag.read(buffer)
+                tag.read(buffer,false)
                 this.list.push(tag)
             }
             buffer.readInt8()
@@ -293,7 +297,8 @@ namespace NBTTag
         toJSON(): object {
             return {
                 listType: this.listType,
-                tags: this.list.map((t) => t.toJSON())
+                tags: this.list.map((t) => t.toJSON()),
+                key: this.key
             }
         }
     }
@@ -305,35 +310,30 @@ namespace NBTTag
             super(Type.Compound)
             this.map = map
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             for(const tag of this.map.values()) tag.write(buffer)
             buffer.writeInt8(Type.End)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
+        readContent(buffer: NBuffer): void {
             this.map = new Map()
-            this.readKey(buffer)
-            this.#readTag(buffer)
-        }
-        #readTag(buffer: NBuffer)
-        {
             try
             {
-                const tag = read(buffer)
-                if(tag.type == Type.End) return
-                this.map.set(tag.key as string,tag)
-                this.#readTag(buffer)
+                while(true) 
+                {
+                    const tag = NBTTag.readTag(buffer)
+                    if(tag.type == Type.End) break
+                    this.map.set(tag.key as string,tag)
+                }
             }
             catch(e)
             {
-                
+
             }
         }
         toJSON(): object {
             return {
-                map: this.map
+                map: this.map,
+                key: this.key
             }
         }
     }
@@ -345,21 +345,18 @@ namespace NBTTag
             super(Type.IntArray)
             this.intArray = arr
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeInt32(this.intArray.length)
             buffer.writeArray(this.intArray,NBuffer.SizeOf.Int32)
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             const length = buffer.readInt32()
             this.intArray = buffer.readArray(length,NBuffer.SizeOf.Int32)
         }
         toJSON(): object {
             return {
-                intArray: this.intArray
+                intArray: this.intArray,
+                key: this.key
             }
         }
     }
@@ -371,22 +368,19 @@ namespace NBTTag
             super(Type.ByteArray)
             this.longArray = arr
         }
-        write(buffer: NBuffer): void {
-            buffer.writeInt8(this.type)
-            this.writeKey(buffer)
+        writeContent(buffer: NBuffer): void {
             buffer.writeInt32(this.longArray.length)
             for(var i = 0;i < this.longArray.length;i++) buffer.writeInt64(this.longArray[i])
         }
-        read(buffer: NBuffer): void {
-            this.checkType(buffer)
-            this.readKey(buffer)
+        readContent(buffer: NBuffer): void {
             const length = buffer.readInt32()
             this.longArray = new Array(length)
             for(var i = 0;i < length;i++) this.longArray[i] = buffer.readInt64()
         }
         toJSON(): object {
             return {
-                longArray: this.longArray
+                longArray: this.longArray,
+                key: this.key
             }
         }
     }
@@ -422,7 +416,22 @@ namespace NBTTag
                 return new NBTTag.LongArray()
         }
     }
-    export function read(buffer: NBuffer)
+    export function read(buffer: Buffer)
+    {
+        const compression = detectCompression(buffer)
+        switch(compression)
+        {
+            case Compression.None:
+                return readNone(buffer)
+            case Compression.GZip:
+                return readGZip(buffer)
+            case Compression.ZLib:
+                return readZLib(buffer)
+            default:
+                throw new Error("Couldn't read NBTTag!")
+        }
+    }
+    export function readTag(buffer: NBuffer)
     {
         const type = buffer.readInt8() as Type
         buffer.readOffset -= NBuffer.SizeOf.Int8
@@ -430,9 +439,21 @@ namespace NBTTag
         else
         {
             const tag = NBTTag.create(type)
-            tag.read(buffer)
+            tag.readContent(buffer)
             return tag
         }
+    }
+    export function readNone(cbuffer: Buffer)
+    {
+        return readTag(new NBuffer(cbuffer))
+    }
+    export function readGZip(cbuffer: Buffer)
+    {
+        return readNone(gunzipSync(cbuffer))
+    }
+    export function readZLib(cbuffer: Buffer)
+    {
+        return readNone(deflateSync(cbuffer))
     }
 }
 
