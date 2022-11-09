@@ -38,7 +38,7 @@ abstract class NBTTag
         if(includeKey) this.writeKey(buffer)
         this.writeContent(buffer)
     }
-    abstract readContent(buffer: NBuffer): void
+    abstract readContent(buffer: NBuffer): this
     abstract writeContent(buffer: NBuffer): void
     abstract toJSON(): object
 }
@@ -61,34 +61,14 @@ namespace NBTTag
         IntArray,
         LongArray
     }
-    export enum Compression
-    {
-        None = Type.Compound,
-        GZip = 0x1F,
-        ZLib = 0x78
-    }
-    export function detectCompression(buffer: Buffer)
-    {
-        const firstByte = buffer.readInt8(0)
-        switch(firstByte)
-        {
-            case Compression.None:
-                return Compression.None
-            case Compression.GZip:
-                return Compression.GZip
-            case Compression.ZLib:
-                return Compression.ZLib
-            default:
-                throw new Error("Couldn't detect compression!")
-        }
-    }
     export class End extends NBTTag
     {
         constructor()
         {
             super(Type.End)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
+            return this
         }
         writeContent(buffer: NBuffer): void {
         }
@@ -107,8 +87,9 @@ namespace NBTTag
         writeContent(buffer: NBuffer): void {
             buffer.writeInt8(this.byte)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             this.byte = buffer.readInt8()
+            return this
         }
         toJSON(): object {
             return {
@@ -128,8 +109,9 @@ namespace NBTTag
         writeContent(buffer: NBuffer): void {
             buffer.writeInt16(this.short)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             this.short = buffer.readInt16()
+            return this
         }
         toJSON(): object {
             return {
@@ -149,8 +131,9 @@ namespace NBTTag
         writeContent(buffer: NBuffer): void {
             buffer.writeInt32(this.int)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             this.int = buffer.readInt32()
+            return this
         }
         toJSON(): object {
             return {
@@ -170,8 +153,9 @@ namespace NBTTag
         writeContent(buffer: NBuffer): void {
             buffer.writeInt64(this.long)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             this.long = buffer.readInt64()
+            return this
         }
         toJSON(): object {
             return {
@@ -191,8 +175,9 @@ namespace NBTTag
         writeContent(buffer: NBuffer): void {
             buffer.writeFloat(this.float)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             this.float = buffer.readFloat()
+            return this
         }
         toJSON(): object {
             return {
@@ -212,8 +197,9 @@ namespace NBTTag
         writeContent(buffer: NBuffer): void {
             buffer.writeDouble(this.double)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             this.double = buffer.readDouble()
+            return this
         }
         toJSON(): object {
             return {
@@ -234,9 +220,10 @@ namespace NBTTag
             buffer.writeInt32(this.byteArray.length)
             buffer.writeArray(this.byteArray,NBuffer.SizeOf.Int8)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             const length = buffer.readInt32()
             this.byteArray = buffer.readArray(length,NBuffer.SizeOf.Int8)
+            return this
         }
         toJSON(): object {
             return {
@@ -257,9 +244,10 @@ namespace NBTTag
             buffer.writeInt16(this.string.length)
             buffer.writeString(this.string,"utf-8")
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             const length = buffer.readInt16()
-            this.string = buffer.readString(length,"utf-8")
+            this.string = globalThis.String.fromCharCode(...buffer.readArray(length,NBuffer.SizeOf.Int8))
+            return this
         }
         toJSON(): object {
             return {
@@ -280,19 +268,17 @@ namespace NBTTag
         }
         writeContent(buffer: NBuffer): void {
             buffer.writeInt32(this.list.length)
+            buffer.writeInt8(this.listType)
             for(const tag of this.list) tag.write(buffer,false)
             buffer.writeInt8(Type.End)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             this.list = []
+            this.listType = buffer.readInt8() as Type
             const length = buffer.readInt32()
-            for(var index = 0;index < length;index++)
-            {
-                const tag = NBTTag.create(this.listType)
-                tag.read(buffer,false)
-                this.list.push(tag)
-            }
+            for(var index = 0;index < length;index++) this.list.push(NBTTag.create(buffer))
             buffer.readInt8()
+            return this
         }
         toJSON(): object {
             return {
@@ -314,21 +300,15 @@ namespace NBTTag
             for(const tag of this.map.values()) tag.write(buffer)
             buffer.writeInt8(Type.End)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             this.map = new Map()
-            try
+            while(buffer.readOffset >= buffer.length) 
             {
-                while(true) 
-                {
-                    const tag = NBTTag.readTag(buffer)
-                    if(tag.type == Type.End) break
-                    this.map.set(tag.key as string,tag)
-                }
+                const tag = NBTTag.create(buffer)
+                if(tag.type == Type.End) break
+                this.map.set(tag.key as string,tag)
             }
-            catch(e)
-            {
-
-            }
+            return this
         }
         toJSON(): object {
             return {
@@ -349,9 +329,10 @@ namespace NBTTag
             buffer.writeInt32(this.intArray.length)
             buffer.writeArray(this.intArray,NBuffer.SizeOf.Int32)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             const length = buffer.readInt32()
             this.intArray = buffer.readArray(length,NBuffer.SizeOf.Int32)
+            return this
         }
         toJSON(): object {
             return {
@@ -370,12 +351,12 @@ namespace NBTTag
         }
         writeContent(buffer: NBuffer): void {
             buffer.writeInt32(this.longArray.length)
-            for(var i = 0;i < this.longArray.length;i++) buffer.writeInt64(this.longArray[i])
+            buffer.writeArray(this.longArray,NBuffer.SizeOf.Int64)
         }
-        readContent(buffer: NBuffer): void {
+        readContent(buffer: NBuffer): this {
             const length = buffer.readInt32()
-            this.longArray = new Array(length)
-            for(var i = 0;i < length;i++) this.longArray[i] = buffer.readInt64()
+            this.longArray = buffer.readArray(length,NBuffer.SizeOf.Int64)
+            return this
         }
         toJSON(): object {
             return {
@@ -384,76 +365,56 @@ namespace NBTTag
             }
         }
     }
-    export function create(type: Type): NBTTag
-    {
-        switch(type)
-        {
-            case Type.End:
-                return new NBTTag.End()
-            case Type.Byte:
-                return new NBTTag.Byte()
-            case Type.Short:
-                return new NBTTag.Short()
-            case Type.Int:
-                return new NBTTag.Int()
-            case Type.Long:
-                return new NBTTag.Long()
-            case Type.Float:
-                return new NBTTag.Float()
-            case Type.Double:
-                return new NBTTag.Double()
-            case Type.ByteArray:
-                return new NBTTag.ByteArray()
-            case Type.String:
-                return new NBTTag.String()
-            case Type.List:
-                return new NBTTag.List(NaN)
-            case Type.Compound:
-                return new NBTTag.Compound()
-            case Type.IntArray:
-                return new NBTTag.IntArray()
-            case Type.LongArray:
-                return new NBTTag.LongArray()
-        }
-    }
-    export function read(buffer: Buffer)
-    {
-        const compression = detectCompression(buffer)
-        switch(compression)
-        {
-            case Compression.None:
-                return readNone(buffer)
-            case Compression.GZip:
-                return readGZip(buffer)
-            case Compression.ZLib:
-                return readZLib(buffer)
-            default:
-                throw new Error("Couldn't read NBTTag!")
-        }
-    }
-    export function readTag(buffer: NBuffer)
+    export function create(buffer: NBuffer): NBTTag
     {
         const type = buffer.readInt8() as Type
         buffer.readOffset -= NBuffer.SizeOf.Int8
-        if(type == Type.End) return create(type)
-        else
+        switch(type)
         {
-            const tag = NBTTag.create(type)
-            tag.readContent(buffer)
-            return tag
+            case Type.End:
+                return new NBTTag.End().readContent(buffer)
+            case Type.Byte:
+                return new NBTTag.Byte().readContent(buffer)
+            case Type.Short:
+                return new NBTTag.Short().readContent(buffer)
+            case Type.Int:
+                return new NBTTag.Int().readContent(buffer)
+            case Type.Long:
+                return new NBTTag.Long().readContent(buffer)
+            case Type.Float:
+                return new NBTTag.Float().readContent(buffer)
+            case Type.Double:
+                return new NBTTag.Double().readContent(buffer)
+            case Type.ByteArray:
+                return new NBTTag.ByteArray().readContent(buffer)
+            case Type.String:
+                return new NBTTag.String().readContent(buffer)
+            case Type.List:
+                return new NBTTag.List(NaN).readContent(buffer)
+            case Type.Compound:
+                return new NBTTag.Compound().readContent(buffer)
+            case Type.IntArray:
+                return new NBTTag.IntArray().readContent(buffer)
+            case Type.LongArray:
+                return new NBTTag.LongArray().readContent(buffer)
         }
     }
-    export function readNone(cbuffer: Buffer)
+    export function readTag(buffer: Buffer): NBTTag
+    export function readTag(buffer: NBuffer): NBTTag
+    export function readTag(b: NBuffer | Buffer)
     {
-        return readTag(new NBuffer(cbuffer))
+        const buffer = Buffer.isBuffer(b) ? new NBuffer(b) : b
+        return create(buffer)
     }
     export function readGZip(cbuffer: Buffer)
     {
-        return readNone(gunzipSync(cbuffer))
+        const buffer = gunzipSync(cbuffer)
+        return readTag(new NBuffer(buffer))
     }
     export function readZLib(cbuffer: Buffer)
     {
-        return readNone(deflateSync(cbuffer))
+        const buffer = deflateSync(cbuffer)
+        return readTag(new NBuffer(buffer))
     }
 }
 
